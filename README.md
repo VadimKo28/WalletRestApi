@@ -10,7 +10,7 @@
 
 3. ### Start services: 
 ```
-docker compose up -d
+docker compose up --build
 ```
 
 4. ### Stop services:
