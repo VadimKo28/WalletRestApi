@@ -2,7 +2,12 @@ package main
 
 import (
 	"context"
+	"net/http"
+	"os/signal"
+	"syscall"
+	"time"
 
+	"walet_rest_api/internal/config"
 	"walet_rest_api/internal/domain/wallet"
 	walletdb "walet_rest_api/internal/domain/wallet/db"
 	"walet_rest_api/internal/handler"
@@ -16,16 +21,14 @@ import (
 func main() {
 	logger := logging.GetLogger()
 
-	if err := godotenv.Load(); err != nil {
-		logger.WithError(err).Warn("Failed to load .env file")
-	}
+	godotenv.Load()
 
-	ctx := context.Background()
+	cfg := config.Load()
+
+	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGTERM, syscall.SIGINT)
+	defer stop()
+
 	db := postgres.NewPool(ctx)
-
-	if err := db.Ping(ctx); err != nil {
-		logger.WithError(err).Fatal("Failed to ping database")
-	}
 
 	defer db.Close()
 
@@ -38,7 +41,28 @@ func main() {
 	router := gin.Default()
 	h.RegisterRoutes(router)
 
-	if err := router.Run(":3010"); err != nil {
-		logger.WithError(err).Fatal("failed to run HTTP server")
+	srv := &http.Server{
+		Addr:    cfg.HTTPAddr,
+		Handler: router,
+	}
+
+	go func() {
+		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			logger.WithError(err).Fatal("failed to run HTTP server")
+		}
+	}()
+
+	logger.Infof("HTTP server started on %s", cfg.HTTPAddr)
+
+	<-ctx.Done()
+	logger.Info("Shutting down HTTP server...")
+
+	shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	if err := srv.Shutdown(shutdownCtx); err != nil {
+		logger.WithError(err).Error("HTTP server forced to shutdown")
+	} else {
+		logger.Info("HTTP server stopped gracefully")
 	}
 }
