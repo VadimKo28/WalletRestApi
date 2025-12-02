@@ -14,7 +14,7 @@ type service struct {
 }
 
 func (s *service) ChangeBalanceWallet(ctx context.Context, dto *WalletChangeBalanceDTO) (*Wallet, error) {
-	return s.storage.ChangeBalance(dto)
+	return s.storage.ChangeBalance(ctx, dto)
 }
 
 func (s *service) GetBalanceWalletByWalletID(ctx context.Context, walletID string) (int, error) {

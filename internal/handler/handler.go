@@ -27,8 +27,8 @@ func NewHandlers(service wallet.Service, logger *logrus.Logger) *handlers {
 
 type changeBalanceRequest struct {
 	WalletID      uuid.UUID `json:"walletId" binding:"required"`
-	OperationType string `json:"operationType" binding:"required"`
-	Amount        int    `json:"amount" binding:"required,gt=0"`
+	OperationType string    `json:"operationType" binding:"required"`
+	Amount        int       `json:"amount" binding:"required,gt=0"`
 }
 
 func (h *handlers) ChangeBalanceWallet(c *gin.Context) {
@@ -57,17 +57,23 @@ func (h *handlers) ChangeBalanceWallet(c *gin.Context) {
 	if err != nil {
 		h.logger.Error(fmt.Sprintf("Failed to change wallet balance: %v", err))
 
-		// Определяем статус код в зависимости от типа ошибки
 		statusCode := http.StatusInternalServerError
+		errorMessage := "internal server error"
+
 		if strings.Contains(err.Error(), "not found") {
 			statusCode = http.StatusNotFound
+			errorMessage = "wallet not found"
 		} else if strings.Contains(err.Error(), "insufficient balance") {
 			statusCode = http.StatusBadRequest
+			errorMessage = err.Error()
 		} else if strings.Contains(err.Error(), "invalid operation type") {
 			statusCode = http.StatusBadRequest
+			errorMessage = err.Error()
+		} else {
+			errorMessage = err.Error()
 		}
 
-		c.JSON(statusCode, gin.H{"error": err.Error()})
+		c.JSON(statusCode, gin.H{"error": errorMessage})
 		return
 	}
 

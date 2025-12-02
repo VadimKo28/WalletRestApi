@@ -8,6 +8,7 @@ import (
 	"walet_rest_api/internal/domain/wallet"
 	"walet_rest_api/pkg/client/postgres"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/sirupsen/logrus"
 )
@@ -21,50 +22,48 @@ func NewWalletDB(client postgres.Client, logger *logrus.Logger) wallet.Storage {
 	return &WalletDB{client: client, logger: logger}
 }
 
-func (w *WalletDB) ChangeBalance(dto *wallet.WalletChangeBalanceDTO) (*wallet.Wallet, error) {
-	ctx := context.Background()
+func (w *WalletDB) ChangeBalance(ctx context.Context, dto *wallet.WalletChangeBalanceDTO) (*wallet.Wallet, error) {
+	//Проверка существования кошелька в базе
+	exists, err := walletExists(ctx, w.client, dto.ID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to check wallet existence: %w", err)
+	}
+	if !exists {
+		return nil, fmt.Errorf("wallet with id %v not found", dto.ID)
+	}
 
 	var query string
-	var err error
+	var execErr error
 
 	switch dto.OperationType {
 	case "DEPOSIT":
-		// Пополнение баланса
 		query = `UPDATE wallets SET balance = balance + $1 WHERE id = $2 RETURNING id, balance`
 		w.logger.Info(fmt.Sprintf("SQL query: %s, amount: %d, walletID: %v", query, dto.Balance, dto.ID))
 
 		var wallet wallet.Wallet
-		err = w.client.QueryRow(ctx, query, dto.Balance, dto.ID).Scan(&wallet.ID, &wallet.Balance)
-		if err != nil {
-			if errors.Is(err, pgx.ErrNoRows) {
+		
+		execErr = w.client.QueryRow(ctx, query, dto.Balance, dto.ID).Scan(&wallet.ID, &wallet.Balance)
+		if execErr != nil {
+			if errors.Is(execErr, pgx.ErrNoRows) {
 				return nil, fmt.Errorf("wallet with id %v not found", dto.ID)
 			}
-			return nil, fmt.Errorf("failed to deposit balance: %w", err)
+			return nil, fmt.Errorf("failed to deposit balance: %w", execErr)
 		}
 
 		return &wallet, nil
 
 	case "WITHDRAW":
-		// Списание с баланса (проверяем, что баланс достаточен)
 		query = `UPDATE wallets SET balance = balance - $1 WHERE id = $2 AND balance >= $1 RETURNING id, balance`
 		w.logger.Info(fmt.Sprintf("SQL query: %s, amount: %d, walletID: %v", query, dto.Balance, dto.ID))
 
 		var wallet wallet.Wallet
-		err = w.client.QueryRow(ctx, query, dto.Balance, dto.ID).Scan(&wallet.ID, &wallet.Balance)
-		if err != nil {
-			if errors.Is(err, pgx.ErrNoRows) {
-				// Проверяем, существует ли кошелек
-				var exists bool
-				checkQuery := `SELECT EXISTS(SELECT 1 FROM wallets WHERE id = $1)`
-				if err := w.client.QueryRow(ctx, checkQuery, dto.ID).Scan(&exists); err != nil {
-					return nil, fmt.Errorf("failed to check wallet existence: %w", err)
-				}
-				if !exists {
-					return nil, fmt.Errorf("wallet with id %v not found", dto.ID)
-				}
+		
+		execErr = w.client.QueryRow(ctx, query, dto.Balance, dto.ID).Scan(&wallet.ID, &wallet.Balance)
+		if execErr != nil {
+			if errors.Is(execErr, pgx.ErrNoRows) {
 				return nil, fmt.Errorf("insufficient balance for withdrawal")
 			}
-			return nil, fmt.Errorf("failed to withdraw balance: %w", err)
+			return nil, fmt.Errorf("failed to withdraw balance: %w", execErr)
 		}
 
 		return &wallet, nil
@@ -85,4 +84,15 @@ func (w *WalletDB) GetBalance(ctx context.Context, walletID string) (int, error)
 	}
 
 	return balance, nil
+}
+
+func walletExists(ctx context.Context, client postgres.Client, walletID uuid.UUID) (bool, error) {
+	walletExistsQuery := `SELECT EXISTS(SELECT 1 FROM wallets WHERE id = $1)`
+
+	var exists bool
+	if err := client.QueryRow(ctx, walletExistsQuery, walletID).Scan(&exists); err != nil {
+		return false, err
+	}
+
+	return exists, nil
 }

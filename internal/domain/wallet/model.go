@@ -2,7 +2,6 @@ package wallet
 
 import "github.com/google/uuid"
 
-
 type Wallet struct {
 	ID uuid.UUID `json:"wallet_id"`
 	Balance int `json:"balance"`
