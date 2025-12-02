@@ -1,7 +1,4 @@
-CREATE DATABASE IF NOT EXISTS wallet_db;
-
 CREATE TABLE IF NOT EXISTS wallets (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   balance INTEGER NOT NULL DEFAULT 0
 );
-
